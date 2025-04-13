@@ -10,12 +10,50 @@ st.set_page_config(
     page_title="Alpha Database Viewer",
     page_icon="🚗",
     layout="wide",
+    initial_sidebar_state="expanded"
 )
 
+# Custom CSS for beautification
+st.markdown("""
+<style>
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+    }
+    .main .block-container {
+        padding-left: 2rem;
+        padding-right: 2rem;
+    }
+    h1 {
+        color: #6366F1;
+        margin-bottom: 0.5rem !important;
+    }
+    h2, h3 {
+        margin-top: 1rem !important;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 1rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+    }
+    .success-banner {
+        background-color: #d1fae5;
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        border-left: 4px solid #10b981;
+    }
+    footer {
+        opacity: 0.7;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # Title and description
-st.title("Alpha Database Viewer")
+st.title("Vehicle Registry Dashboard")
 ui.badges(badge_list=[("Live", "destructive"), ("Supabase", "default"), ("Streamlit", "primary"), ("shadcn", "secondary")], class_name="flex gap-2", key="main_badges")
-st.caption("Supabase data visualization with auto-updates")
+st.caption("Real-time vehicle data visualization with auto-updates")
 
 # Initialize Supabase client using streamlit secrets
 @st.cache_resource
@@ -33,7 +71,7 @@ supabase = init_supabase()
 
 # Initialize session state for data
 if 'data' not in st.session_state:
-    st.session_state['data'] = pd.DataFrame(columns=['ID', 'Plate Number', 'Call Sign'])
+    st.session_state['data'] = pd.DataFrame(columns=['Plate Number', 'Call Sign'])
 if 'auto_update' not in st.session_state:
     st.session_state['auto_update'] = True
 if 'poll_interval' not in st.session_state:
@@ -41,7 +79,7 @@ if 'poll_interval' not in st.session_state:
 
 # Sidebar for search/filter options
 with st.sidebar:
-    st.header("Update Settings")
+    st.header("🔄 Update Settings")
     auto_update = ui.switch(default_checked=st.session_state['auto_update'], label="Enable Auto Updates", key="auto_update_switch")
     st.session_state['auto_update'] = auto_update
     
@@ -65,16 +103,15 @@ with st.sidebar:
     
     st.divider()
     
-    st.header("Search Options")
-    search_term = ui.input(placeholder="Search by ID, plate number, or call sign", key="search_input")
+    st.header("🔍 Search Options")
+    search_term = ui.input(placeholder="Search for plate number or call sign", key="search_input")
     
     # Filter options
     st.subheader("Filter By")
     filter_options = [
         {"label": "All Columns", "value": "All", "id": "f1"},
-        {"label": "ID", "value": "ID", "id": "f2"},
-        {"label": "Plate Number", "value": "Plate Number", "id": "f3"},
-        {"label": "Call Sign", "value": "Call Sign", "id": "f4"}
+        {"label": "Plate Number", "value": "Plate Number", "id": "f2"},
+        {"label": "Call Sign", "value": "Call Sign", "id": "f3"}
     ]
     filter_column = ui.radio_group(options=filter_options, default_value="All", key="filter_radio")
 
@@ -90,18 +127,20 @@ def fetch_data(supabase_client):
             
             # Rename columns for display
             df = df.rename(columns={
-                'id': 'ID',
                 'plate_number': 'Plate Number',
                 'call_sign': 'Call Sign'
             })
             
+            # Select only the columns we want to display
+            df = df[['Plate Number', 'Call Sign']]
+            
             return df
         else:
-            return pd.DataFrame(columns=['ID', 'Plate Number', 'Call Sign'])
+            return pd.DataFrame(columns=['Plate Number', 'Call Sign'])
             
     except Exception as e:
         st.error(f"Error fetching data: {e}")
-        return pd.DataFrame(columns=['ID', 'Plate Number', 'Call Sign'])
+        return pd.DataFrame(columns=['Plate Number', 'Call Sign'])
 
 # Function to filter data based on search terms
 def filter_data(df, search=None, filter_col=None):
@@ -131,7 +170,8 @@ tab_selection = ui.tabs(
 
 # Main content based on selected tab
 if tab_selection == "Data Table":
-    # Create a single placeholder for all data table content
+    # Create placeholders for notification and data table
+    notification_placeholder = st.empty()
     data_table_placeholder = st.empty()
     
     # Load initial data if needed
@@ -148,30 +188,44 @@ if tab_selection == "Data Table":
         current_data = st.session_state['data']
         filtered_data = filter_data(current_data, search_term, filter_column)
         
+        # Check for new data if auto-update is enabled
+        notification_shown = False
+        if st.session_state['auto_update']:
+            if supabase:
+                new_data = fetch_data(supabase)
+                
+                # Check if we have new data (more rows than before)
+                if len(new_data) > len(current_data):
+                    with notification_placeholder.container():
+                        st.markdown('<div class="success-banner">✅ New vehicle data detected and loaded!</div>', unsafe_allow_html=True)
+                    st.session_state['data'] = new_data
+                    filtered_data = filter_data(new_data, search_term, filter_column)
+                    notification_shown = True
+        
+        # Clear notification if nothing to show
+        if not notification_shown:
+            notification_placeholder.empty()
+        
         # Update the UI with the latest data
         with data_table_placeholder.container():
-            # Check for new data if auto-update is enabled
-            if st.session_state['auto_update']:
-                if supabase:
-                    new_data = fetch_data(supabase)
-                    
-                    # Check if we have new data (more rows than before)
-                    if len(new_data) > len(current_data):
-                        st.success("✅ New data detected and loaded!")
-                        st.session_state['data'] = new_data
-                        filtered_data = filter_data(new_data, search_term, filter_column)
-            
             # Display the data table
             if not filtered_data.empty:
+                # Create card container for table
+                st.markdown("### Vehicle Registry")
+                
+                # Add table with styling
                 ui.table(data=filtered_data, maxHeight=500, key=f"data_table_{int(time.time())}")
                 
                 # Display record count and last check time
                 current_time = datetime.now().strftime("%H:%M:%S")
-                st.write(f"Showing {len(filtered_data)} records")
-                if st.session_state['auto_update']:
-                    st.write(f"Last checked: {current_time} (updating every {st.session_state['poll_interval']} seconds)")
-                else:
-                    st.write(f"Last updated: {current_time} (auto-update disabled)")
+                cols = st.columns(2)
+                with cols[0]:
+                    st.write(f"📊 Showing {len(filtered_data)} vehicles")
+                with cols[1]:
+                    if st.session_state['auto_update']:
+                        st.write(f"🕒 Last checked: {current_time} (updating every {st.session_state['poll_interval']} seconds)")
+                    else:
+                        st.write(f"🕒 Last updated: {current_time} (auto-update disabled)")
             else:
                 st.info("No data available or no results match your search criteria.")
         
@@ -191,40 +245,42 @@ elif tab_selection == "Statistics":
         df = st.session_state['data']
         
         with stats_placeholder.container():
-            st.header("Data Statistics")
+            st.header("📈 Data Statistics")
             
             # Display basic statistics
             st.subheader("Summary")
-            cols = st.columns(3)
+            cols = st.columns(2)
             
             with cols[0]:
                 ui.card(
-                    title="Total Records", 
+                    title="Total Vehicles", 
                     content=str(len(df)), 
-                    description="Number of entries in database", 
+                    description="Number of registered vehicles", 
                     key="card1"
                 ).render()
             
             with cols[1]:
                 ui.card(
-                    title="Unique Plate Numbers", 
-                    content=str(df['Plate Number'].nunique()), 
-                    description="Count of distinct plates", 
-                    key="card2"
-                ).render()
-            
-            with cols[2]:
-                ui.card(
                     title="Unique Call Signs", 
                     content=str(df['Call Sign'].nunique()), 
                     description="Count of distinct call signs", 
-                    key="card3"
+                    key="card2"
                 ).render()
+            
+            # Add some visualization
+            st.subheader("Plates per Call Sign")
+            call_sign_counts = df['Call Sign'].value_counts().reset_index()
+            call_sign_counts.columns = ['Call Sign', 'Count']
+            
+            if not call_sign_counts.empty:
+                # Display using table
+                ui.table(data=call_sign_counts.head(10), maxHeight=300, key="stats_table")
+                st.caption("Top 10 call signs by vehicle count")
             
             # Show auto-update status
             st.subheader("Update Status")
             if st.session_state['auto_update']:
-                st.success(f"✅ Auto-updates are enabled. Switch to the Data Table tab to see live updates.")
+                st.success("✅ Auto-updates are enabled. Switch to the Data Table tab to see live updates.")
             else:
                 st.warning("⚠️ Auto-updates are disabled. Enable it in the sidebar to get live updates.")
     else:
@@ -235,7 +291,7 @@ elif tab_selection == "Settings":
     settings_placeholder = st.empty()
     
     with settings_placeholder.container():
-        st.header("Application Settings")
+        st.header("⚙️ Application Settings")
         
         # Dark mode toggle
         dark_mode = ui.switch(default_checked=True, label="Dark Mode", key="dark_mode_switch")
@@ -254,6 +310,16 @@ elif tab_selection == "Settings":
         To enable or disable auto-updates, use the toggle in the sidebar.
         """
         st.markdown(auto_update_explanation)
+        
+        # Table display settings
+        st.subheader("Table Display")
+        st.write("""
+        The main data table shows the following columns:
+        - **Plate Number**: The vehicle's license plate number
+        - **Call Sign**: The associated call sign for the vehicle
+        
+        The database ID field is hidden for a cleaner presentation.
+        """)
         
         # Export options
         st.subheader("Export Options")
@@ -274,7 +340,7 @@ elif tab_selection == "Settings":
                     st.download_button(
                         label="Download CSV",
                         data=csv,
-                        file_name="alpha_data.csv",
+                        file_name="vehicle_data.csv",
                         mime="text/csv",
                     )
                 elif export_format == "Excel":
@@ -286,7 +352,7 @@ elif tab_selection == "Settings":
                     st.download_button(
                         label="Download Excel",
                         data=buffer,
-                        file_name="alpha_data.xlsx",
+                        file_name="vehicle_data.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     )
                 elif export_format == "JSON":
@@ -294,7 +360,7 @@ elif tab_selection == "Settings":
                     st.download_button(
                         label="Download JSON",
                         data=json,
-                        file_name="alpha_data.json",
+                        file_name="vehicle_data.json",
                         mime="application/json",
                     )
         else:
@@ -304,7 +370,7 @@ elif tab_selection == "Settings":
         st.subheader("About")
         st.write("This application was created using Streamlit and the streamlit-shadcn-ui package.")
         st.write("Database: Supabase with auto-updates")
-        st.write("Table: alpha (id, plate_number, call_sign)")
+        st.write("Table: alpha (plate_number, call_sign)")
 
         # Help dialog
         help_btn = ui.button("Need Help?", key="help_btn")
@@ -319,4 +385,4 @@ elif tab_selection == "Settings":
 
 # Footer
 st.divider()
-st.caption("Created with Streamlit and shadcn UI components.")
+st.caption("Created with Streamlit and shadcn UI components • Vehicle Registry System")
